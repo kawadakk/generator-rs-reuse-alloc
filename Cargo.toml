@@ -33,6 +33,7 @@ features = [
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.100"
+crossbeam-channel = "0.5"
 
 [dependencies]
 log = "0.4"

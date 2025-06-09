@@ -1,7 +1,9 @@
+use crossbeam_channel::{Receiver, Sender};
 use std::io;
 use std::mem;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
 
 use super::SysStack;
 
@@ -28,10 +30,32 @@ const MAP_STACK: libc::c_int = 0;
 )))]
 const MAP_STACK: libc::c_int = libc::MAP_STACK;
 
+struct Bin {
+    send: Sender<SysStack>,
+    recv: Receiver<SysStack>,
+}
+
+static BINS: LazyLock<[Bin; usize::BITS as usize]> = LazyLock::new(|| {
+    std::array::from_fn(|_| {
+        let (send, recv) = crossbeam_channel::unbounded();
+        Bin { send, recv }
+    })
+});
+
+fn bin_for_size(size: usize) -> &'static Bin {
+    &BINS[size.max(1).ilog2() as usize]
+}
+
 pub unsafe fn allocate_stack(size: usize) -> io::Result<SysStack> {
     const NULL: *mut libc::c_void = 0 as *mut libc::c_void;
     const PROT: libc::c_int = libc::PROT_READ | libc::PROT_WRITE;
     const TYPE: libc::c_int = libc::MAP_PRIVATE | libc::MAP_ANON | MAP_STACK;
+
+    // Reuse an existing allocation if possible
+    let bin = bin_for_size(size);
+    if let Ok(stack) = bin.recv.try_recv() {
+        return Ok(stack);
+    }
 
     let ptr = libc::mmap(NULL, size, PROT, TYPE, -1, 0);
 
@@ -81,7 +105,10 @@ unsafe fn exclude_guard(stack: &SysStack) -> SysStack {
 }
 
 pub unsafe fn deallocate_stack(ptr: *mut c_void, size: usize) {
-    libc::munmap(ptr, size);
+    let bin = bin_for_size(size);
+    bin.send
+        .send(SysStack::new(ptr.wrapping_add(size), ptr))
+        .unwrap();
 }
 
 pub fn page_size() -> usize {
