@@ -1,3 +1,15 @@
+# Generator-rs with stack allocation reuse
+
+This is a fork of [generator-rs](https://github.com/Xudong-Huang/generator-rs) modified to reuse stack allocations.
+
+When using [Loom](https://crates.io/crates/loom), [replacing](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html) generator-rs with this fork significantly reduces the test execution time (**-62%** observed on 9950X) by eliminating repeated `mmap`-related operations.
+
+It is not recommended for general use cases because of drawbacks.
+
+*The original readme follows*
+
+-----------------------------------------------------------------------------
+
 [![Build Status](https://github.com/Xudong-Huang/generator-rs/workflows/CI/badge.svg)](https://github.com/Xudong-Huang/generator-rs/actions?query=workflow%3ACI)
 [![Current Crates.io Version](https://img.shields.io/crates/v/generator.svg)](https://crates.io/crates/generator)
 [![Document](https://img.shields.io/badge/doc-generator-green.svg)](https://docs.rs/generator)
