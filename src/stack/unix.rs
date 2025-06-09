@@ -36,16 +36,25 @@ pub unsafe fn allocate_stack(size: usize) -> io::Result<SysStack> {
     let ptr = libc::mmap(NULL, size, PROT, TYPE, -1, 0);
 
     if std::ptr::eq(ptr, libc::MAP_FAILED) {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(SysStack::new(
-            (ptr as usize + size) as *mut c_void,
-            ptr as *mut c_void,
-        ))
+        return Err(io::Error::last_os_error());
     }
+
+    let stack = SysStack::new((ptr as usize + size) as *mut c_void, ptr as *mut c_void);
+
+    if let Err(error) = protect_stack_real(&stack) {
+        deallocate_stack(stack.bottom, stack.top.offset_from(stack.bottom) as usize);
+        return Err(error);
+    }
+
+    Ok(stack)
 }
 
 pub unsafe fn protect_stack(stack: &SysStack) -> io::Result<SysStack> {
+    // `allocate_stack` now implicitly protects the stack
+    Ok(exclude_guard(stack))
+}
+
+unsafe fn protect_stack_real(stack: &SysStack) -> io::Result<()> {
     let page_size = page_size();
 
     debug_assert!(stack.len() % page_size == 0 && stack.len() != 0);
@@ -58,9 +67,17 @@ pub unsafe fn protect_stack(stack: &SysStack) -> io::Result<SysStack> {
     if ret != 0 {
         Err(io::Error::last_os_error())
     } else {
-        let bottom = (stack.bottom() as usize + page_size) as *mut c_void;
-        Ok(SysStack::new(stack.top(), bottom))
+        Ok(())
     }
+}
+
+unsafe fn exclude_guard(stack: &SysStack) -> SysStack {
+    let page_size = page_size();
+
+    debug_assert!(stack.len() % page_size == 0 && stack.len() != 0);
+
+    let bottom = (stack.bottom() as usize + page_size) as *mut c_void;
+    SysStack::new(stack.top(), bottom)
 }
 
 pub unsafe fn deallocate_stack(ptr: *mut c_void, size: usize) {
